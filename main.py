@@ -185,10 +185,6 @@ def api_verify_code():
     email = data.get('email')
     code = data.get('code')
     
-    if verification_codes.get(email) == code:
-        del verification_codes[email]
-        return jsonify({'success': True})
-    return jsonify({'success': False, 'message': 'Неверный код'})
 
 @socketio.on('message')
 def handle_message(msg):
@@ -197,3 +193,6 @@ def handle_message(msg):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     socketio.run(app, host='0.0.0.0', port=port)
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    socketio.run(app, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
