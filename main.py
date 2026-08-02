@@ -6,19 +6,19 @@ from flask import Flask, render_template_string, request, jsonify
 from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'cat_secret_key'
+app.config['SECRET_KEY'] = 'catmessanger_secret_key'
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Данные твоего бота
+# Данные твоего бота для отправки писем
 GMAIL_USER = "catmessagerbot@gmail.com"
 GMAIL_PASS = os.environ.get("GMAIL_APP_PASSWORD")
 
 verification_codes = {}
 
 def send_verification_code(email, code):
-    """Отправка кода прямо от нашего бота"""
-    msg = MIMEText(f"Ваш код подтверждения для привязки почты в Cat Messenger: {code}")
-    msg['Subject'] = "Код подтверждения Cat Messenger 🐱"
+    """Отправка 6-значного кода прямо через catmessagerbot@gmail.com"""
+    msg = MIMEText(f"Ваш код подтверждения для Cat Messanger: {code}")
+    msg['Subject'] = "Код подтверждения Cat Messanger"
     msg['From'] = f"Cat Bot <{GMAIL_USER}>"
     msg['To'] = email
 
@@ -26,154 +26,201 @@ def send_verification_code(email, code):
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(GMAIL_USER, GMAIL_PASS)
             server.sendmail(GMAIL_USER, email, msg.as_string())
+        print(f"✅ Код успешно отправлен на {email}")
         return True
     except Exception as e:
-        print(f"Ошибка отправки: {e}")
+        print(f"❌ Ошибка отправки через Gmail: {e}")
         return False
 
-# Твой старый оригинальный интерфейс (Чат + Профиль)
+# Твой родной мобильный интерфейс Cat Messanger
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cat Messenger</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Cat Messanger</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        body { background-color: #0f172a; color: white; display: flex; height: 100vh; overflow: hidden; }
-        
-        /* Панель навигации */
-        .sidebar { width: 280px; background: #1e293b; border-right: 1px solid #334155; display: flex; flex-direction: column; }
-        .logo-box { padding: 20px; font-size: 20px; font-weight: bold; color: #38bdf8; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 10px; }
-        .nav-list { flex: 1; padding: 10px 0; }
-        .nav-item { padding: 14px 20px; cursor: pointer; border-bottom: 1px solid #1e293b; transition: 0.2s; display: flex; align-items: center; gap: 12px; font-size: 15px; }
-        .nav-item:hover, .nav-item.active { background: #334155; color: #38bdf8; }
-        
-        /* Главное окно */
-        .content-area { flex: 1; display: flex; flex-direction: column; background: #0f172a; }
-        .tab-page { display: none; width: 100%; height: 100%; flex-direction: column; }
-        .tab-page.active { display: flex; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        body { background-color: #121b29; color: #ffffff; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-        /* Вкладка: Чат */
-        .header { padding: 18px 24px; background: #1e293b; border-bottom: 1px solid #334155; font-weight: bold; font-size: 18px; }
-        .chat-messages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
-        .msg { max-width: 70%; padding: 10px 16px; border-radius: 12px; background: #334155; word-break: break-word; line-height: 1.4; }
-        .msg-author { font-size: 12px; color: #38bdf8; margin-bottom: 4px; font-weight: bold; }
-        .chat-input-bar { padding: 16px 20px; background: #1e293b; display: flex; gap: 10px; border-top: 1px solid #334155; }
+        /* Шапка с профилем */
+        .app-header { background: #182232; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #232e42; }
+        .user-profile-btn { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+        .avatar-container { position: relative; width: 44px; height: 44px; }
+        .avatar { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: #253347; }
+        .online-dot { position: absolute; bottom: 2px; right: 2px; width: 10px; height: 10px; background: #22c55e; border-radius: 50%; border: 2px solid #182232; }
+        .header-info { display: flex; flex-direction: column; }
+        .header-title { font-size: 18px; font-weight: 700; color: #ffffff; }
+        .header-status { font-size: 13px; color: #22c55e; margin-top: 1px; }
+
+        /* Поиск по ID */
+        .search-container { padding: 12px 16px; background: #121b29; display: flex; gap: 10px; }
+        .search-input { flex: 1; background: #182232; border: 1px solid #232e42; border-radius: 10px; padding: 10px 14px; color: #fff; font-size: 14px; outline: none; }
+        .search-input::placeholder { color: #64748b; }
+        .search-btn { background: #2563eb; color: #fff; border: none; border-radius: 10px; padding: 0 18px; font-weight: 600; font-size: 14px; cursor: pointer; }
+
+        /* Список чатов */
+        .chats-list { flex: 1; overflow-y: auto; padding: 8px 16px; display: flex; flex-direction: column; gap: 8px; }
+        .chat-card { background: #182232; padding: 12px 14px; border-radius: 12px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: 0.2s; }
+        .chat-card:active { background: #232e42; }
+        .chat-card-avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; }
+        .chat-card-details { display: flex; flex-direction: column; gap: 4px; }
+        .chat-card-name { font-size: 16px; font-weight: 700; color: #ffffff; }
+        .chat-card-sub { font-size: 14px; }
+
+        /* Окно активного чата */
+        .chat-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #121b29; display: flex; flex-direction: column; z-index: 100; transform: translateX(100%); transition: transform 0.25s ease; }
+        .chat-screen.active { transform: translateX(0); }
+        .chat-topbar { background: #182232; padding: 12px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #232e42; }
+        .back-btn { background: none; border: none; color: #38bdf8; font-size: 20px; cursor: pointer; padding: 4px; }
+        .messages-area { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .message-bubble { max-width: 75%; padding: 10px 14px; border-radius: 14px; background: #182232; font-size: 15px; word-break: break-word; }
+        .message-bubble.my-msg { align-self: flex-end; background: #2563eb; }
+        .chat-bottom-input { padding: 12px 16px; background: #182232; display: flex; gap: 10px; border-top: 1px solid #232e42; }
+
+        /* Окно профиля / привязки почты */
+        .profile-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); display: none; justify-content: center; align-items: center; z-index: 200; padding: 20px; }
+        .profile-modal.active { display: flex; }
+        .modal-card { background: #182232; width: 100%; max-width: 380px; border-radius: 16px; padding: 20px; border: 1px solid #232e42; position: relative; }
+        .modal-close { position: absolute; top: 14px; right: 16px; background: none; border: none; color: #94a3b8; font-size: 20px; cursor: pointer; }
+        .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; color: #38bdf8; }
+        .modal-field { margin-bottom: 14px; }
+        .modal-field label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 6px; }
         
-        /* Вкладка: Профиль */
-        .profile-wrapper { padding: 30px; max-width: 550px; }
-        .profile-box { background: #1e293b; padding: 24px; border-radius: 14px; border: 1px solid #334155; }
-        .profile-title { font-size: 20px; color: #38bdf8; margin-bottom: 20px; font-weight: bold; }
-        .form-group { margin-bottom: 18px; }
-        .form-group label { display: block; font-size: 13px; color: #94a3b8; margin-bottom: 6px; }
-        
-        input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 15px; outline: none; }
-        input:focus { border-color: #38bdf8; }
-        button { padding: 12px 20px; background: #38bdf8; color: #0f172a; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 15px; }
-        button:hover { background: #7dd3fc; }
-        
-        .badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; margin-bottom: 10px; }
-        .badge-red { background: #ef4444; color: white; }
-        .badge-green { background: #22c55e; color: white; }
+        .modal-input { width: 100%; background: #121b29; border: 1px solid #232e42; border-radius: 8px; padding: 10px 12px; color: #fff; font-size: 14px; outline: none; }
+        .modal-btn { width: 100%; background: #2563eb; color: #fff; border: none; border-radius: 8px; padding: 10px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+        .badge { display: inline-block; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+        .badge-red { background: #ef4444; color: #fff; }
+        .badge-green { background: #22c55e; color: #fff; }
         .hidden { display: none !important; }
-        .status-msg { margin-top: 8px; font-size: 14px; color: #38bdf8; }
+        .status-text { font-size: 13px; color: #38bdf8; margin-top: 8px; }
     </style>
 </head>
 <body>
 
-    <!-- Меню слева -->
-    <div class="sidebar">
-        <div class="logo-box">🐱 Cat Messenger</div>
-        <div class="nav-list">
-            <div class="nav-item active" onclick="openTab('chat', this)">💬 Общий чат</div>
-            <div class="nav-item" onclick="openTab('profile', this)">👤 Профиль</div>
+    <!-- Шапка -->
+    <div class="app-header">
+        <div class="user-profile-btn" onclick="openProfile()">
+            <div class="avatar-container">
+                <img src="https://api.dicebear.com/7.x/bottts/svg?seed=CatUser" class="avatar" alt="Avatar">
+                <div class="online-dot"></div>
+            </div>
+            <div class="header-info">
+                <div class="header-title">Чаты</div>
+                <div class="header-status">В сети</div>
+            </div>
         </div>
     </div>
 
-    <!-- Основной контент -->
-    <div class="content-area">
-        
-        <!-- Страница Чата -->
-        <div id="page-chat" class="tab-page active">
-            <div class="header">Общий чат</div>
-            <div class="chat-messages" id="messages-list"></div>
-            <div class="chat-input-bar">
-                <input type="text" id="message-text" placeholder="Напишите сообщение..." onkeypress="if(event.key==='Enter') sendMsg()">
-                <button onclick="sendMsg()">Отправить</button>
+    <!-- Поиск по ID (@user) -->
+    <div class="search-container">
+        <input type="text" class="search-input" id="search-id" placeholder="Поиск по ID (@user)...">
+        <button class="search-btn">Найти</button>
+    </div>
+
+    <!-- Список чатов -->
+    <div class="chats-list">
+        <div class="chat-card" onclick="openChat('Willie')">
+            <img src="https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=100&h=100&fit=crop&crop=faces" class="chat-card-avatar" alt="Willie">
+            <div class="chat-card-details">
+                <div class="chat-card-name">Willie</div>
+                <div class="chat-card-sub">🚀</div>
             </div>
         </div>
+    </div>
 
-        <!-- Страница Профиля -->
-        <div id="page-profile" class="tab-page">
-            <div class="profile-wrapper">
-                <div class="profile-box">
-                    <div class="profile-title">Настройки аккаунта</div>
-                    
-                    <div class="form-group">
-                        <label>Ваше имя в чате:</label>
-                        <input type="text" id="username-input" value="Кот">
-                    </div>
+    <!-- Экран диалога -->
+    <div class="chat-screen" id="chat-screen">
+        <div class="chat-topbar">
+            <button class="back-btn" onclick="closeChat()">←</button>
+            <div class="header-title" id="chat-target-name">Чат</div>
+        </div>
+        <div class="messages-area" id="messages-box"></div>
+        <div class="chat-bottom-input">
+            <input type="text" class="search-input" id="msg-input" placeholder="Сообщение..." onkeypress="if(event.key==='Enter') sendMsg()">
+            <button class="search-btn" onclick="sendMsg()">></button>
+        </div>
+    </div>
 
-                    <div class="form-group">
-                        <label>Привязка Email:</label>
-                        <div id="email-status-badge" class="badge badge-red">Не привязана</div>
-                        
-                        <div id="box-email-input">
-                            <input type="email" id="email-to-bind" placeholder="Введите ваш Gmail">
-                            <button onclick="requestCode()" style="margin-top: 10px; width: 100%;">Отправить код</button>
-                        </div>
+    <!-- Окно Профиля -->
+    <div class="profile-modal" id="profile-modal">
+        <div class="modal-card">
+            <button class="modal-close" onclick="closeProfile()">✕</button>
+            <div class="modal-title">Настройки Профиля</div>
+            
+            <div class="modal-field">
+                <label>Ваше имя:</label>
+                <input type="text" class="modal-input" id="profile-username" value="Пользователь">
+            </div>
 
-                        <div id="box-code-input" class="hidden">
-                            <input type="text" id="code-to-verify" placeholder="6-значный код" maxlength="6">
-                            <button onclick="verifyCode()" style="margin-top: 10px; width: 100%;">Привязать</button>
-                        </div>
-                        <div class="status-msg" id="status-info"></div>
-                    </div>
+            <div class="modal-field">
+                <label>Привязка Email:</label>
+                <div id="email-badge" class="badge badge-red">Не привязана</div>
+                
+                <div id="email-step-send">
+                    <input type="email" class="modal-input" id="bind-email-input" placeholder="Введите ваш Gmail">
+                    <button class="modal-btn" onclick="sendCode()">Отправить код</button>
                 </div>
+
+                <div id="email-step-verify" class="hidden">
+                    <input type="text" class="modal-input" id="bind-code-input" placeholder="6-значный код" maxlength="6">
+                    <button class="modal-btn" onclick="verifyCode()">Подтвердить</button>
+                </div>
+                <div class="status-text" id="status-info"></div>
             </div>
         </div>
-
     </div>
 
     <script>
         const socket = io();
-        let targetEmail = '';
+        let currentTarget = '';
+        let boundEmail = '';
 
-        function openTab(tabName, element) {
-            document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
-            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-            
-            document.getElementById('page-' + tabName).classList.add('active');
-            element.classList.add('active');
+        function openProfile() {
+            document.getElementById('profile-modal').classList.add('active');
+        }
+
+        function closeProfile() {
+            document.getElementById('profile-modal').classList.remove('active');
+        }
+
+        function openChat(name) {
+            currentTarget = name;
+            document.getElementById('chat-target-name').innerText = name;
+            document.getElementById('chat-screen').classList.add('active');
+        }
+
+        function closeChat() {
+            document.getElementById('chat-screen').classList.remove('active');
         }
 
         function sendMsg() {
-            const input = document.getElementById('message-text');
-            const user = document.getElementById('username-input').value || 'Аноним';
-            if(input.value.trim()) {
-                socket.emit('message', { user: user, text: input.value.trim() });
+            const input = document.getElementById('msg-input');
+            const text = input.value.trim();
+            const sender = document.getElementById('profile-username').value || 'Аноним';
+            
+            if(text) {
+                socket.emit('message', { user: sender, text: text });
                 input.value = '';
             }
         }
 
         socket.on('message', (data) => {
-            const list = document.getElementById('messages-list');
-            list.innerHTML += `
-                <div class="msg">
-                    <div class="msg-author">${data.user}</div>
-                    <div>${data.text}</div>
-                </div>`;
-            list.scrollTop = list.scrollHeight;
+            const box = document.getElementById('messages-box');
+            const myName = document.getElementById('profile-username').value;
+            const isMy = data.user === myName;
+            
+            box.innerHTML += `<div class="message-bubble ${isMy ? 'my-msg' : ''}"><b>${data.user}:</b> ${data.text}</div>`;
+            box.scrollTop = box.scrollHeight;
         });
 
-        async function requestCode() {
-            const email = document.getElementById('email-to-bind').value;
+        async function sendCode() {
+            const email = document.getElementById('bind-email-input').value;
             if(!email) return alert('Введите Email!');
             
-            document.getElementById('status-info').innerText = 'Отправка кода...';
+            document.getElementById('status-info').innerText = 'Отправка кода от catmessagerbot@gmail.com...';
             
             const res = await fetch('/api/send-code', {
                 method: 'POST',
@@ -183,31 +230,31 @@ HTML_TEMPLATE = """
             const data = await res.json();
             
             if(data.success) {
-                targetEmail = email;
-                document.getElementById('box-email-input').classList.add('hidden');
-                document.getElementById('box-code-input').classList.remove('hidden');
-                document.getElementById('status-info').innerText = 'Код отправлен от catmessagerbot@gmail.com!';
+                boundEmail = email;
+                document.getElementById('email-step-send').classList.add('hidden');
+                document.getElementById('email-step-verify').classList.remove('hidden');
+                document.getElementById('status-info').innerText = 'Код отправлен на почту!';
             } else {
-                document.getElementById('status-info').innerText = 'Ошибка отправки. Проверьте адрес.';
+                document.getElementById('status-info').innerText = 'Ошибка отправки. Проверьте почту.';
             }
         }
 
         async function verifyCode() {
-            const code = document.getElementById('code-to-verify').value;
+            const code = document.getElementById('bind-code-input').value;
             
             const res = await fetch('/api/verify-code', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ email: targetEmail, code })
+                body: JSON.stringify({ email: boundEmail, code })
             });
             const data = await res.json();
             
             if(data.success) {
-                document.getElementById('box-code-input').classList.add('hidden');
-                const badge = document.getElementById('email-status-badge');
+                document.getElementById('email-step-verify').classList.add('hidden');
+                const badge = document.getElementById('email-badge');
                 badge.className = 'badge badge-green';
-                badge.innerText = 'Привязана: ' + targetEmail;
-                document.getElementById('status-info').innerText = 'Почта успешно подтверждена!';
+                badge.innerText = 'Привязана: ' + boundEmail;
+                document.getElementById('status-info').innerText = 'Почта успешно привязана!';
             } else {
                 document.getElementById('status-info').innerText = 'Неверный код!';
             }
