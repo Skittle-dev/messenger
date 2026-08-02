@@ -3,7 +3,7 @@ import random
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, jsonify, Response
 from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
@@ -51,6 +51,13 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cat Messanger</title>
+
+    <!-- ИКОНКА ВКЛАДКИ И PWA ДЛЯ ТЕЛЕФОНОВ -->
+    <link rel="icon" type="image/jpeg" href="https://i.ibb.co/3kWy9Y7/cat-icon.jpg">
+    <link rel="apple-touch-icon" href="https://i.ibb.co/3kWy9Y7/cat-icon.jpg">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0f172a">
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
@@ -127,7 +134,6 @@ HTML_TEMPLATE = """
         .field-group label { font-size: 12px; color: #94a3b8; }
         .field-group input { width: 100%; background: #1e293b; border: 1px solid #334155; padding: 10px; border-radius: 10px; color: white; outline: none; }
         .id-hint { font-size: 11px; margin-top: 2px; }
-        .spam-warn { font-size: 11px; color: #f59e0b; margin-top: 5px; line-height: 1.4; }
 
         .nav-bar { background-color: #1e293b; display: flex; justify-around; padding: 10px 0; border-top: 1px solid #334155; height: 60px; }
         .nav-item { color: #94a3b8; text-decoration: none; font-size: 13px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; }
@@ -284,6 +290,11 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        // Регистрация Service Worker для работы PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(err => console.log(err));
+        }
+
         const socket = io();
         let myProfile = { name: "", id: "", avatar: "", email: "" };
         let currentChatUser = "";
@@ -530,6 +541,38 @@ HTML_TEMPLATE = """
 </body>
 </html>
 """
+
+# Маршруты для поддержки PWA (Manifest + Service Worker)
+@app.route('/manifest.json')
+def manifest():
+    manifest_data = {
+        "short_name": "Cat Messenger",
+        "name": "Cat Messenger App",
+        "icons": [
+            {
+                "src": "https://i.ibb.co/3kWy9Y7/cat-icon.jpg",
+                "type": "image/jpeg",
+                "sizes": "512x512"
+            }
+        ],
+        "start_url": "/",
+        "background_color": "#0f172a",
+        "theme_color": "#0f172a",
+        "display": "standalone"
+    }
+    return jsonify(manifest_data)
+
+@app.route('/sw.js')
+def service_worker():
+    sw_code = """
+    self.addEventListener('install', (e) => {
+        self.skipWaiting();
+    });
+    self.addEventListener('fetch', (e) => {
+        // Простой проброс сетевых запросов
+    });
+    """
+    return Response(sw_code, mimetype='application/javascript')
 
 @app.route('/')
 def index():
