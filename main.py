@@ -9,8 +9,7 @@ app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app, cors_allowed_origins='*')
 
 # Вставь сюда свой API ключ из resend.com (начинается на re_...)
-resend.api_key = os.environ.get("ZQgr2BLj_BXM9hHZJLMfGdFozyDMU6bF4")
-
+resend.api_key = os.environ.get("RESEND_API_KEY")
 registered_users = {}
 verification_codes = {}
 
