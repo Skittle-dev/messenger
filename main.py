@@ -17,10 +17,9 @@ verification_codes = {}
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "catmessagerbot@gmail.com"
-SENDER_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")  # Пароль приложения из переменных окружения
+SENDER_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 
 def send_email_code(target_email, code):
-    """Функция отправки кода верификации на email"""
     if not SENDER_PASSWORD:
         print(f"[WARNING] GMAIL_APP_PASSWORD не задан. Код для {target_email}: {code}")
         return True
@@ -52,9 +51,9 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cat Messenger</title>
 
-    <!-- ИКОНКА ВКЛАДКИ И PWA ДЛЯ ТЕЛЕФОНОВ -->
-    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/616/616430.png">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/616/616430.png">
+    <!-- ИКОНКА ТВOЕГО СИНЕГО КОТИКА -->
+    <link rel="icon" type="image/png" href="/cat-icon.png">
+    <link rel="apple-touch-icon" href="/cat-icon.png">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0f172a">
 
@@ -144,7 +143,7 @@ HTML_TEMPLATE = """
 
     <div id="verifyModal">
         <div class="auth-box">
-            <div class="auth-icon-3d">🤖</div>
+            <div class="auth-icon-3d"><img src="/cat-icon.png" style="width:100%;height:100%;border-radius:18px;"></div>
             <h2>Cat Bot Верификация</h2>
             <p style="font-size: 13px; color: #94a3b8;">Введите вашу почту, чтобы получить код подтверждения.</p>
             
@@ -168,7 +167,7 @@ HTML_TEMPLATE = """
 
     <div id="profileVerifyModal">
         <div class="auth-box">
-            <div class="auth-icon-3d">🔗</div>
+            <div class="auth-icon-3d"><img src="/cat-icon.png" style="width:100%;height:100%;border-radius:18px;"></div>
             <h2>Привязка почты</h2>
             <div id="profStepEmail">
                 <div class="field-group" style="margin-bottom: 12px;">
@@ -190,7 +189,7 @@ HTML_TEMPLATE = """
 
     <div id="authModal">
         <div class="auth-box">
-            <div class="auth-icon-3d">✈️</div>
+            <div class="auth-icon-3d"><img src="/cat-icon.png" style="width:100%;height:100%;border-radius:18px;"></div>
             <h2>Регистрация</h2>
             <div class="avatar-upload" onclick="document.getElementById('regAvatarInput').click()">
                 <div id="regAvatarPlaceholder" class="placeholder">📷</div>
@@ -290,7 +289,6 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
-        // Регистрация Service Worker для работы PWA
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js').catch(err => console.log(err));
         }
@@ -542,7 +540,18 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# Маршруты для поддержки PWA (Manifest + Service Worker)
+# ПРЯМАЯ ССЫЛКА НА ТВОЙ РИСУНОК СИНЕГО КОТИКА
+BLUE_CAT_URL = "https://i.imgur.com/rN30s3r.png"
+
+@app.route('/cat-icon.png')
+def cat_icon():
+    import requests
+    try:
+        res = requests.get(BLUE_CAT_URL)
+        return Response(res.content, mimetype='image/png')
+    except:
+        return ""
+
 @app.route('/manifest.json')
 def manifest():
     manifest_data = {
@@ -550,12 +559,12 @@ def manifest():
         "name": "Cat Messenger App",
         "icons": [
             {
-                "src": "https://cdn-icons-png.flaticon.com/512/616/616430.png",
+                "src": "/cat-icon.png",
                 "type": "image/png",
                 "sizes": "192x192"
             },
             {
-                "src": "https://cdn-icons-png.flaticon.com/512/616/616430.png",
+                "src": "/cat-icon.png",
                 "type": "image/png",
                 "sizes": "512x512",
                 "purpose": "any maskable"
@@ -571,12 +580,8 @@ def manifest():
 @app.route('/sw.js')
 def service_worker():
     sw_code = """
-    self.addEventListener('install', (e) => {
-        self.skipWaiting();
-    });
-    self.addEventListener('fetch', (e) => {
-        // Простой проброс сетевых запросов
-    });
+    self.addEventListener('install', (e) => { self.skipWaiting(); });
+    self.addEventListener('fetch', (e) => {});
     """
     return Response(sw_code, mimetype='application/javascript')
 
@@ -592,10 +597,8 @@ def handle_send_verify(data):
     
     code = str(random.randint(100000, 999999))
     verification_codes[recipient] = code
-    
     print(f"\n[CODE FOR {recipient}]: {code}\n")
     
-    # Отправка реального письма через Google SMTP
     sent = send_email_code(recipient, code)
     if not sent and SENDER_PASSWORD:
         return {'status': 'error', 'message': 'Ошибка отправки письма'}
