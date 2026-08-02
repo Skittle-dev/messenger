@@ -2,6 +2,7 @@ import os
 import io
 import random
 import smtplib
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from flask import Flask, render_template_string, request, jsonify, Response, send_file
@@ -21,24 +22,13 @@ SMTP_PORT = 587
 SENDER_EMAIL = "catmessagerbot@gmail.com"
 SENDER_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 
-# Динамическая генерация PNG-иконки синего котика для PWA и сайта
-def generate_cat_icon():
+# Твоя прямая ссылка на оригинального белого котика для иконки PWA
+CAT_ICON_URL = "https://i.ibb.co/NdwDNT19/Screenshot-20260803-011705.jpg"
+
+def generate_fallback_icon():
     img = Image.new('RGBA', (192, 192), color=(15, 23, 42, 255))
     draw = ImageDraw.Draw(img)
-    
-    # Голова синего котика
     draw.ellipse([36, 46, 156, 166], fill=(37, 99, 235))
-    # Ушки
-    draw.polygon([(46, 66), (26, 26), (76, 46)], fill=(37, 99, 235))
-    draw.polygon([(146, 66), (166, 26), (116, 46)], fill=(37, 99, 235))
-    # Глазки
-    draw.ellipse([66, 86, 86, 106], fill=(255, 255, 255))
-    draw.ellipse([106, 86, 126, 106], fill=(255, 255, 255))
-    draw.ellipse([73, 93, 80, 100], fill=(15, 23, 42))
-    draw.ellipse([113, 93, 120, 100], fill=(15, 23, 42))
-    # Носик
-    draw.polygon([(91, 111), (101, 111), (96, 118)], fill=(244, 114, 182))
-    
     img_io = io.BytesIO()
     img.save(img_io, 'PNG')
     img_io.seek(0)
@@ -46,7 +36,12 @@ def generate_cat_icon():
 
 @app.route('/cat-icon.png')
 def cat_icon():
-    return send_file(generate_cat_icon(), mimetype='image/png')
+    try:
+        res = requests.get(CAT_ICON_URL, timeout=5)
+        return Response(res.content, mimetype='image/jpeg')
+    except Exception as e:
+        print(f"Ошибка загрузки иконки: {e}")
+        return send_file(generate_fallback_icon(), mimetype='image/png')
 
 @app.route('/manifest.json')
 def manifest():
@@ -56,13 +51,13 @@ def manifest():
         "icons": [
             {
                 "src": "/cat-icon.png",
-                "type": "image/png",
+                "type": "image/jpeg",
                 "sizes": "192x192",
                 "purpose": "any maskable"
             },
             {
                 "src": "/cat-icon.png",
-                "type": "image/png",
+                "type": "image/jpeg",
                 "sizes": "512x512",
                 "purpose": "any maskable"
             }
@@ -114,7 +109,7 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cat Messenger</title>
 
-    <link rel="icon" type="image/png" href="/cat-icon.png">
+    <link rel="icon" type="image/jpeg" href="/cat-icon.png">
     <link rel="apple-touch-icon" href="/cat-icon.png">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0f172a">
