@@ -225,6 +225,492 @@ HTML_TEMPLATE = """
         let currentChatUser = "";
         let chatsData = {};
 
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedProfile = localStorage.getItem('messenger_user');
+            if (savedProfile) {
+                myProfile = JSON.parse(savedProfile);
+                socket.emit('register_user', { name: myProfile.name, id: myProfile.id, avatar: myProfile.avatar }, (response) => {
+                    initUserUI();
+                });
+            } else {
+                document.getElementById('authModal').style.display = 'flex';
+            }
+        });
+
+        function initUserUI() {
+            updateHeaderAvatar();
+            document.getElementById('authModal').style.display = 'none';
+            document.getElementById('editNameInput').value = myProfile.name;
+            document.getElementById('editIdInput').value = myProfile.id;
+            if (myProfile.avatar) {
+                document.getElementById('editAvatarImg').src = myProfile.avatar;
+                document.getElementById('editAvatarImg').style.display = 'block';
+                document.getElementById('editAvatarPlaceholder').style.display = 'none';
+            }
+            renderChatsList();
+        }
+
+        function registerUser() {
+            const name = document.getElementById('regName').value.trim();
+            let id = document.getElementById('regId').value.trim();
+            if(!name || !id) { alert("Заполните имя и ID!"); return; }
+            if(!id.startsWith('@')) id = '@' + id;
+
+            socket.emit('register_user', { name: name, id: id, avatar: myProfile.avatar }, (response) => {
+                if(response.status === 'ok') {
+                    myProfile.name = name;
+                    myProfile.id = id;
+                    localStorage.setItem('messenger_user', JSON.stringify(myProfile));
+                    initUserUI();
+                } else { alert("Ошибка: " + response.message); }
+            });
+        }
+
+        function saveProfileChanges() {
+            const newName = document.getElementById('editNameInput').value.trim();
+            let newId = document.getElementById('editIdInput').value.trim();
+            if(!newName || !newId) { alert("Поля не могут быть пустыми!"); return; }
+            if(!newId.startsWith('@')) newId = '@' + newId;
+
+            socket.emit('update_profile', { old_id: myProfile.id, new_id: newId, name: newName, avatar: myProfile.avatar }, (response) => {
+                if(response.status === 'ok') {
+                    myProfile.name = newName; 
+                    myProfile.id = newId;
+                    localStorage.setItem('messenger_user', JSON.stringify(myProfile));
+                    updateHeaderAvatar(); 
+                    alert("Профиль успешно обновлен!"); 
+                    goBackToChats();
+                } else { alert("Ошибка: " + response.message); }
+            });
+        }
+
+        function logoutUser() {
+            if (confirm("Вы уверены, что хотите выйти?")) {
+                localStorage.removeItem('messenger_user');
+                location.reload();
+            }
+        }
+
+        function toggleAttachMenu() {
+            const menu = document.getElementById('attachMenu');
+            document.getElementById('stickerPicker').style.display = 'none';
+            menu.style.display = menu.style.display === 'flex' ? 'none' : 'flex';
+        }
+
+        function toggleStickers() {
+            document.getElementById('attachMenu').style.display = 'none';
+            const picker = document.getElementById('stickerPicker');
+            picker.style.display = picker.style.display === 'grid' ? 'none' : 'grid';
+        }
+
+        function openProfileScreen() {
+            if(document.getElementById('screenChatDetail').classList.contains('active')) return;
+            switchScreen('screenProfile', document.getElementById('navProfileBtn'));
+        }
+
+        function handleAvatarSelect(input, mode) {
+            const file = input.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(evt) {
+                    const imgData = evt.target.result;
+                    myProfile.avatar = imgData;
+                    if(mode === 'reg') {
+                        document.getElementById('regAvatarImg').src = imgData;
+                        document.getElementById('regAvatarImg').style.display = 'block';
+                        document.getElementById('regAvatarPlaceholder').style.display = 'none';
+                    } else {
+                        document.getElementById('editAvatarImg').src = imgData;
+                        document.getElementById('editAvatarImg').style.display = 'block';
+                        document.getElementById('editAvatarPlaceholder').style.display = 'none';
+                    }
+                }
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function checkIdAvailability(mode) {
+            const inputId = mode === 'reg' ? 'regId' : 'editIdInput';
+            const hintId = mode === 'reg' ? 'regIdStatusHint' : 'editIdStatusHint';
+            let id = document.getElementById(inputId).value.trim();
+            const hint = document.getElementById(hintId);
+            
+            if(!id) { hint.innerText = ''; return; }
+            if(!id.startsWith('@')) id = '@' + id;
+
+            if(mode === 'edit' && id === myProfile.id) {
+                hint.innerText = '✓ Это ваш текущий ID'; hint.style.color = '#22c55e'; return;
+            }
+
+            socket.emit('check_id_taken', { id: id }, (response) => {
+                if(response.taken) {
+                    hint.innerText = '❌ Этот ID уже занят!'; hint.style.color = '#ef4444';
+                } else {
+                    hint.innerText = '✓ ID свободен'; hint.style.color = '#22c55e';
+                }
+            });
+        }
+
+        function updateHeaderAvatar() {
+            const box = document.getElementById('headerAvatarBox');
+            if(myProfile.avatar) {
+                box.innerHTML = `<img src="${myProfile.avatar}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;">`;
+            } else { box.innerText = myProfile.name ? myProfile.name[0].toUpperCase() : '?'; }
+        }
+
+        function switchScreen(screenId, navElement) {
+            document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+            if(navElement) {
+                document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+                navElement.classList.add('active');
+            }
+            if(screenId === 'screenChatsList') {
+                document.getElementById('headerName').innerText = "Чаты";
+                document.getElementById('headerSubtext').innerText = "В сети";
+            } else if(screenId === 'screenProfile') {
+                document.getElementById('headerName').innerText = "Мой профиль";
+                document.getElementById('headerSubtext').innerText = "Редактирование";
+            }
+        }
+
+        function startNewChat() {
+            let searchId = document.getElementById('newChatInput').value.trim();
+            if(!searchId) return;
+            if(!searchId.startsWith('@')) searchId = '@' + searchId;
+            if(searchId === myProfile.id) { alert("Нельзя открыть чат с самим собой!"); return; }
+
+            socket.emit('find_user', { id: searchId }, (response) => {
+                if(response.found) {
+                    const target = response.user;
+                    if(!chatsData[target.name]) { 
+                        chatsData[target.name] = { avatar: target.avatar, msgs: [] }; 
+                    } else {
+                        chatsData[target.name].avatar = target.avatar;
+                    }
+                    document.getElementById('newChatInput').value = '';
+                    renderChatsList(); 
+                    openChat(target.name);
+                } else { alert("Пользователь с таким ID не найден!"); }
+            });
+        }
+
+        function renderChatsList() {
+            const container = document.getElementById('chatsListContainer');
+            container.innerHTML = '';
+            const keys = Object.keys(chatsData);
+            if (keys.length === 0) {
+                container.innerHTML = `<div class="empty-chats"><div style="font-size: 40px; margin-bottom: 10px;">📭</div><div>Список чатов пуст.<br>Найдите друга по ID сверху!</div></div>`;
+                return;
+            }
+            keys.forEach(name => {
+                const chat = chatsData[name];
+                const lastMsgObj = chat.msgs[chat.msgs.length - 1];
+                let lastMsg = "Нет сообщений";
+                if (lastMsgObj) {
+                    if (lastMsgObj.type === 'text' || lastMsgObj.type === 'sticker') {
+                        lastMsg = lastMsgObj.text;
+                    } else if (lastMsgObj.type === 'image') {
+                        lastMsg = "🖼️ Фотография";
+                    } else if (lastMsgObj.type === 'video') {
+                        lastMsg = "🎥 Видеозапись";
+                    }
+                }
+                
+                const avatarHtml = chat.avatar 
+                    ? `<img src="${chat.avatar}" class="avatar">` 
+                    : `<div class="avatar">${name[0].toUpperCase()}</div>`;
+                
+                const div = document.createElement('div');
+                div.className = 'chat-item';
+                div.innerHTML = `${avatarHtml}<div style="flex: 1;"><div style="font-weight: bold;">${name}</div><div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">${lastMsg}</div></div>`;
+                div.onclick = () => openChat(name);
+                container.appendChild(div);
+            });
+        }
+
+        function openChat(name) {
+            currentChatUser = name; 
+            renderMessages(name); 
+            switchScreen('screenChatDetail', null);
+            
+            const chatAvatar = chatsData[name] && chatsData[name].avatar 
+                ? `<img src="${chatsData[name].avatar}" style="width:38px; height:38px; border-radius:50%; object-fit:cover;">`
+                : `<div class="avatar" style="width:38px; height:38px; font-size:14px;">${name[0].toUpperCase()}</div>`;
+                
+            document.getElementById('headerLeft').innerHTML = `
+                <button class="back-btn" onclick="goBackToChats()">⬅</button>
+                ${chatAvatar}
+                <div style="font-weight: bold; font-size: 15px; margin-left: 5px;">${name}</div>
+            `;
+        }
+
+        function goBackToChats() {
+            document.getElementById('headerLeft').innerHTML = `
+                <div id="headerAvatarBox" class="avatar"></div>
+                <div>
+                    <div id="headerName" style="font-weight: bold; font-size: 15px;">Чаты</div>
+                    <div class="status-text"><span class="status-dot online"></span><span id="headerSubtext">В сети</span></div>
+                </div>`;
+            updateHeaderAvatar(); 
+            renderChatsList(); 
+            switchScreen('screenChatsList', document.querySelectorAll('.nav-item')[0]);
+        }
+
+        function renderMessages(name) {
+            const container = document.getElementById('messagesContainer');
+            container.innerHTML = '';
+            const msgs = chatsData[name] ? chatsData[name].msgs : [];
+            msgs.forEach(msg => {
+                const div = document.createElement('div');
+                
+                if(msg.type === 'sticker') {
+                    div.className = `msg sticker-msg ${msg.is_me ? 'me' : 'other'}`;
+                    div.innerHTML = `<div>${msg.text}</div><div class="msg-time" style="color:white;">${msg.time}</div>`;
+                } else {
+                    div.className = `msg ${msg.is_me ? 'me' : 'other'}`;
+                    let mediaHtml = '';
+                    if(msg.type === 'image') mediaHtml = `<img src="${msg.media}" class="msg-media">`;
+                    if(msg.type === 'video') mediaHtml = `<video src="${msg.media}" class="msg-media" controls></video>`;
+                    
+                    div.innerHTML = `<div>${msg.text ? msg.text : ''}</div>${mediaHtml}<div class="msg-time">${msg.time}</div>`;
+                }
+                container.appendChild(div);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function sendMessage(e) {
+            e.preventDefault();
+            document.getElementById('attachMenu').style.display = 'none';
+            document.getElementById('stickerPicker').style.display = 'none';
+            const input = document.getElementById('msgInput');
+            const text = input.value.trim();
+            if(!text || !currentChatUser) return;
+
+            const now = new Date();
+            const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+            const msgData = { 
+                chat: currentChatUser, 
+                user: myProfile.name, 
+                avatar: myProfile.avatar, 
+                text: text, 
+                type: 'text', 
+                time: timeStr 
+            };
+            socket.emit('send_message', msgData);
+            
+            if(!chatsData[currentChatUser]) chatsData[currentChatUser] = { avatar: "", msgs: [] };
+            chatsData[currentChatUser].msgs.push({ text: text, type: 'text', time: timeStr, is_me: true });
+            
+            renderMessages(currentChatUser);
+            input.value = '';
+        }
+
+        function sendSticker(stickerEmoji) {
+            document.getElementById('stickerPicker').style.display = 'none';
+            const now = new Date();
+            const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+            const msgData = { 
+                chat: currentChatUser, 
+                user: myProfile.name, 
+                avatar: myProfile.avatar, 
+                text: stickerEmoji, 
+                type: 'sticker', 
+                time: timeStr 
+            };
+            socket.emit('send_message', msgData);
+
+            if(!chatsData[currentChatUser]) chatsData[currentChatUser] = { avatar: "", msgs: [] };
+            chatsData[currentChatUser].msgs.push({ text: stickerEmoji, type: 'sticker', time: timeStr, is_me: true });
+            renderMessages(currentChatUser);
+        }
+
+        function sendMediaFile(input, type) {
+            document.getElementById('attachMenu').style.display = 'none';
+            const file = input.files[0];
+            if(file && currentChatUser) {
+                const reader = new FileReader();
+                reader.onload = function(evt) {
+                    const now = new Date();
+                    const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+                    const msgData = { 
+                        chat: currentChatUser, 
+                        user: myProfile.name, 
+                        avatar: myProfile.avatar, 
+                        media: evt.target.result, 
+                        type: type, 
+                        time: timeStr 
+                    };
+                    socket.emit('send_message', msgData);
+
+                    if(!chatsData[currentChatUser]) chatsData[currentChatUser] = { avatar: "", msgs: [] };
+                    chatsData[currentChatUser].msgs.push({ media: evt.target.result, type: type, time: timeStr, is_me: true });
+                    renderMessages(currentChatUser);
+                }
+                reader.readAsDataURL(file);
+            }
+            input.value = '';
+        }
+
+        socket.on('receive_message', (data) => {
+            if(data.user !== myProfile.name) {
+                if(!chatsData[data.user]) {
+                    chatsData[data.user] = { avatar: data.avatar || "", msgs: [] };
+                } else if(data.avatar) {
+                    chatsData[data.user].avatar = data.avatar;
+                }
+                
+                chatsData[data.user].msgs.push({ 
+                    text: data.text, 
+                    media: data.media, 
+                    type: data.type, 
+                    time: data.time, 
+                    is_me: false 
+                });
+
+                if(currentChatUser === data.user) {
+                    renderMessages(data.user);
+                }
+                renderChatsList();
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@socketio.on('check_id_taken')
+def handle_check_id(data):
+    return {'taken': data['id'] in registered_users}
+
+@socketio.on('register_user')
+def handle_register(data):
+    user_id = data['id']
+    registered_users[user_id] = {'name': data['name'], 'avatar': data['avatar']}
+    return {'status': 'ok'}
+
+@socketio.on('update_profile')
+def handle_update_profile(data):
+    old_id = data['old_id']
+    new_id = data['new_id']
+    
+    if old_id != new_id and new_id in registered_users:
+        return {'status': 'error', 'message': f'ID {new_id} уже занят!'}
+        
+    if old_id in registered_users:
+        del registered_users[old_id]
+        
+    registered_users[new_id] = {'name': data['name'], 'avatar': data['avatar']}
+    return {'status': 'ok'}
+
+@socketio.on('find_user')
+def handle_find(data):
+    search_id = data['id']
+    if search_id in registered_users:
+        return {'found': True, 'user': registered_users[search_id]}
+    return {'found': False}
+
+@socketio.on('send_message')
+def handle_send_message(data):
+    emit('receive_message', data, broadcast=True)
+
+if __name__ == '__main__':
+    socketio.run(app, host='0.0.0.0', port=8080, allow_unsafe_werkzeug=True)
+         </div>
+        </div>
+    </div>
+
+    <!-- Контент -->
+    <div class="content-area">
+        
+        <!-- СПИСОК ЧАТОВ -->
+        <div id="screenChatsList" class="screen active">
+            <div class="search-box">
+                <input type="text" id="newChatInput" placeholder="Поиск по ID (@user)...">
+                <button class="btn-primary" onclick="startNewChat()">Найти</button>
+            </div>
+            <div class="chat-list" id="chatsListContainer"></div>
+        </div>
+
+        <!-- ЧАТ ДИАЛОГ -->
+        <div id="screenChatDetail" class="screen">
+            <div class="messages-box" id="messagesContainer"></div>
+
+            <div id="attachMenu" class="attach-menu">
+                <div class="attach-option" onclick="document.getElementById('filePhotoInput').click()">🖼️ Фотография</div>
+                <div class="attach-option" onclick="document.getElementById('fileVideoInput').click()">🎥 Видеозапись</div>
+                <div class="attach-option" onclick="toggleStickers()">🎭 Стикеры</div>
+            </div>
+
+            <input type="file" id="filePhotoInput" accept="image/*" style="display:none;" onchange="sendMediaFile(this, 'image')">
+            <input type="file" id="fileVideoInput" accept="video/*" style="display:none;" onchange="sendMediaFile(this, 'video')">
+
+            <div id="stickerPicker" class="sticker-picker">
+                <span class="sticker-item" onclick="sendSticker('😎')">😎</span>
+                <span class="sticker-item" onclick="sendSticker('🔥')">🔥</span>
+                <span class="sticker-item" onclick="sendSticker('🚀')">🚀</span>
+                <span class="sticker-item" onclick="sendSticker('❤️')">❤️</span>
+                <span class="sticker-item" onclick="sendSticker('🗿')">🗿</span>
+                <span class="sticker-item" onclick="sendSticker('👍')">👍</span>
+                <span class="sticker-item" onclick="sendSticker('🎉')">🎉</span>
+                <span class="sticker-item" onclick="sendSticker('💀')">💀</span>
+            </div>
+
+            <form class="input-bar" onsubmit="sendMessage(event)">
+                <button type="button" class="btn-plus" onclick="toggleAttachMenu()">+</button>
+                <input type="text" id="msgInput" placeholder="Сообщение..." autocomplete="off">
+                <button type="submit" class="btn-primary">➤</button>
+            </form>
+        </div>
+
+        <!-- ПРОФИЛЬ -->
+        <div id="screenProfile" class="screen">
+            <div class="profile-card">
+                <div class="avatar-upload" onclick="document.getElementById('editAvatarInput').click()">
+                    <div id="editAvatarPlaceholder" class="placeholder">👤</div>
+                    <img id="editAvatarImg" src="" style="display:none;">
+                    <input type="file" id="editAvatarInput" accept="image/*" onchange="handleAvatarSelect(this, 'edit')">
+                </div>
+                <div class="field-group">
+                    <label>Имя пользователя</label>
+                    <input type="text" id="editNameInput">
+                </div>
+                <div class="field-group">
+                    <label>Ваш ID</label>
+                    <input type="text" id="editIdInput" oninput="checkIdAvailability('edit')">
+                    <div id="editIdStatusHint" class="id-hint"></div>
+                </div>
+                <button onclick="saveProfileChanges()" class="btn-primary" style="width: 100%; max-width: 350px;">Сохранить изменения</button>
+                <button onclick="logoutUser()" class="btn-danger" style="width: 100%; max-width: 350px; margin-top: 10px;">Выйти из аккаунта</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Навигация -->
+    <div class="nav-bar">
+        <div class="nav-item active" onclick="switchScreen('screenChatsList', this)">
+            <span>💬</span> Чаты
+        </div>
+        <div class="nav-item" id="navProfileBtn" onclick="switchScreen('screenProfile', this)">
+            <span>👤</span> Профиль
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let myProfile = { name: "", id: "", avatar: "" };
+        let currentChatUser = "";
+        let chatsData = {};
+
         // Проверка авторизации при загрузке страницы
         window.addEventListener('DOMContentLoaded', () => {
             const savedProfile = localStorage.getItem('messenger_user');
