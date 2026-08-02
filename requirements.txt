@@ -1,4 +1,2 @@
-flask
-flask-socketio
-pillow
-gunicorn
+Flask
+requests
