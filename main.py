@@ -13,7 +13,7 @@ socketio = SocketIO(app, cors_allowed_origins='*')
 registered_users = {}
 verification_codes = {}
 
-# Настройки почты Cat Messanger
+# Настройки почты Cat Messenger
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "catmessagerbot@gmail.com"
@@ -50,11 +50,11 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cat Messanger</title>
+    <title>Cat Messenger</title>
 
     <!-- ИКОНКА ВКЛАДКИ И PWA ДЛЯ ТЕЛЕФОНОВ -->
-    <link rel="icon" type="image/jpeg" href="https://i.ibb.co/3kWy9Y7/cat-icon.jpg">
-    <link rel="apple-touch-icon" href="https://i.ibb.co/3kWy9Y7/cat-icon.jpg">
+    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/616/616430.png">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/616/616430.png">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0f172a">
 
@@ -135,7 +135,7 @@ HTML_TEMPLATE = """
         .field-group input { width: 100%; background: #1e293b; border: 1px solid #334155; padding: 10px; border-radius: 10px; color: white; outline: none; }
         .id-hint { font-size: 11px; margin-top: 2px; }
 
-        .nav-bar { background-color: #1e293b; display: flex; justify-around; padding: 10px 0; border-top: 1px solid #334155; height: 60px; }
+        .nav-bar { background-color: #1e293b; display: flex; justify-content: space-around; padding: 10px 0; border-top: 1px solid #334155; height: 60px; }
         .nav-item { color: #94a3b8; text-decoration: none; font-size: 13px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; }
         .nav-item.active { color: #2563eb; }
     </style>
@@ -550,9 +550,15 @@ def manifest():
         "name": "Cat Messenger App",
         "icons": [
             {
-                "src": "https://i.ibb.co/3kWy9Y7/cat-icon.jpg",
-                "type": "image/jpeg",
-                "sizes": "512x512"
+                "src": "https://cdn-icons-png.flaticon.com/512/616/616430.png",
+                "type": "image/png",
+                "sizes": "192x192"
+            },
+            {
+                "src": "https://cdn-icons-png.flaticon.com/512/616/616430.png",
+                "type": "image/png",
+                "sizes": "512x512",
+                "purpose": "any maskable"
             }
         ],
         "start_url": "/",
