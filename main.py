@@ -23,7 +23,7 @@ SENDER_EMAIL = "catmessagerbot@gmail.com"
 SENDER_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 
 # Твоя прямая ссылка на оригинального белого котика для иконки PWA
-CAT_ICON_URL = "https://i.ibb.co/NdwDNT19/Screenshot-20260803-011705.jpg"
+CAT_ICON_URL = "https://i.ibb.co/27YwwY44/Screenshot-20260803-011705.jpg"
 
 def generate_fallback_icon():
     img = Image.new('RGBA', (192, 192), color=(15, 23, 42, 255))
