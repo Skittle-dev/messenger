@@ -3,3 +3,5 @@ Flask-SocketIO
 requests
 gunicorn
 Pillow
+google-generativeai
+
