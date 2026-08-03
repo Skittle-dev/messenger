@@ -3,27 +3,37 @@ import io
 import random
 import smtplib
 import requests
+import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from flask import Flask, render_template_string, request, jsonify, Response, send_file
 from flask_socketio import SocketIO, emit
 from PIL import Image, ImageDraw
+import google.generativeai as genai
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app, cors_allowed_origins='*')
 
-registered_users = {}
+# ----------------- НАСТРОЙКИ GEMINI AI -----------------
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
+
+# ----------------- ДАННЫЕ БОТА И ПОЧТЫ -----------------
+BOT_ID = "@catbot"
+BOT_NAME = "Cat Bot (AI)"
+CAT_ICON_URL = "https://i.ibb.co/27YwwY44/Screenshot-20260803-011705.jpg"
+
+registered_users = {
+    BOT_ID: {'name': BOT_NAME, 'avatar': CAT_ICON_URL, 'email': 'bot@cat.app'}
+}
 verification_codes = {}
 
-# Настройки почты Cat Messenger
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "catmessagerbot@gmail.com"
 SENDER_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
-
-# Твоя прямая ссылка на оригинального белого котика для иконки PWA
-CAT_ICON_URL = "https://i.ibb.co/27YwwY44/Screenshot-20260803-011705.jpg"
 
 def generate_fallback_icon():
     img = Image.new('RGBA', (192, 192), color=(15, 23, 42, 255))
@@ -39,58 +49,34 @@ def cat_icon():
     try:
         res = requests.get(CAT_ICON_URL, timeout=5)
         return Response(res.content, mimetype='image/jpeg')
-    except Exception as e:
-        print(f"Ошибка загрузки иконки: {e}")
+    except Exception:
         return send_file(generate_fallback_icon(), mimetype='image/png')
 
 @app.route('/manifest.json')
 def manifest():
-    manifest_data = {
+    return jsonify({
         "short_name": "Cat Messenger",
         "name": "Cat Messenger App",
-        "icons": [
-            {
-                "src": "/cat-icon.png",
-                "type": "image/jpeg",
-                "sizes": "192x192",
-                "purpose": "any maskable"
-            },
-            {
-                "src": "/cat-icon.png",
-                "type": "image/jpeg",
-                "sizes": "512x512",
-                "purpose": "any maskable"
-            }
-        ],
+        "icons": [{"src": "/cat-icon.png", "type": "image/jpeg", "sizes": "192x192"}],
         "start_url": "/",
         "background_color": "#0f172a",
         "theme_color": "#0f172a",
         "display": "standalone"
-    }
-    return jsonify(manifest_data)
+    })
 
 @app.route('/sw.js')
 def service_worker():
-    sw_code = """
-    self.addEventListener('install', (e) => { self.skipWaiting(); });
-    self.addEventListener('fetch', (e) => {});
-    """
-    return Response(sw_code, mimetype='application/javascript')
+    return Response("self.addEventListener('install', (e) => { self.skipWaiting(); }); self.addEventListener('fetch', (e) => {});", mimetype='application/javascript')
 
 def send_email_code(target_email, code):
     if not SENDER_PASSWORD:
-        print(f"[WARNING] GMAIL_APP_PASSWORD не задан. Код для {target_email}: {code}")
         return True
-
     try:
         msg = MIMEMultipart()
         msg['From'] = f"Cat Messenger <{SENDER_EMAIL}>"
         msg['To'] = target_email
-        msg['Subject'] = f"Ваш код подтверждения: {code}"
-
-        body = f"Здравствуйте!\n\nВаш код для входа/регистрации в Cat Messenger: {code}\n\nЕсли вы не запрашивали код, просто проигнорируйте это письмо."
-        msg.attach(MIMEText(body, 'plain', 'utf-8'))
-
+        msg['Subject'] = f"Ваш код: {code}"
+        msg.attach(MIMEText(f"Ваш код для Cat Messenger: {code}", 'plain', 'utf-8'))
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
@@ -98,7 +84,7 @@ def send_email_code(target_email, code):
         server.quit()
         return True
     except Exception as e:
-        print(f"[SMTP ERROR] Не удалось отправить письмо на {target_email}: {e}")
+        print(f"SMTP Error: {e}")
         return False
 
 HTML_TEMPLATE = """
@@ -108,89 +94,54 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cat Messenger</title>
-
     <link rel="icon" type="image/jpeg" href="/cat-icon.png">
-    <link rel="apple-touch-icon" href="/cat-icon.png">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0f172a">
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
         body { background-color: #0f172a; color: white; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-        
         .header { background-color: #1e293b; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #334155; height: 60px; }
-        .user-info { display: flex; align-items: center; gap: 12px; cursor: pointer; padding: 4px 8px; border-radius: 12px; transition: 0.2s; }
-        .user-info:hover { background: #334155; }
-        
-        .avatar { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; background: #2563eb; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid #3b82f6; flex-shrink: 0; }
-        .status-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; }
-        .online { background-color: #22c55e; }
+        .user-info { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+        .avatar { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; background: #2563eb; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; }
+        .status-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background-color: #22c55e; margin-right: 4px; }
         .status-text { font-size: 11px; color: #94a3b8; }
-
         #verifyModal, #authModal, #profileVerifyModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0f172a; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
         #authModal, #profileVerifyModal { display: none; }
-        
-        .auth-box { background: #1e293b; border: 1px solid #334155; padding: 25px; border-radius: 20px; width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 14px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
-        
-        .auth-icon-3d {
-            width: 75px; height: 75px; background: #2563eb;
-            border-radius: 22px; display: flex; align-items: center; justify-content: center;
-            margin: 0 auto 5px auto; box-shadow: 0 15px 25px rgba(37, 99, 235, 0.4);
-            overflow: hidden;
-        }
-
+        .auth-box { background: #1e293b; border: 1px solid #334155; padding: 25px; border-radius: 20px; width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 14px; text-align: center; }
         .avatar-upload { position: relative; width: 80px; height: 80px; margin: 0 auto; cursor: pointer; }
         .avatar-upload img, .avatar-upload .placeholder { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 3px solid #2563eb; background: #0f172a; display: flex; align-items: center; justify-content: center; font-size: 30px; }
         .avatar-upload input { display: none; }
-
         .content-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
         .screen { display: none; flex: 1; flex-direction: column; height: 100%; position: absolute; width: 100%; background: #0f172a; }
         .screen.active { display: flex; }
-
         .search-box { padding: 12px; background: #1e293b; display: flex; gap: 8px; border-bottom: 1px solid #334155; }
         .search-box input { flex: 1; background: #0f172a; border: 1px solid #334155; padding: 10px 14px; border-radius: 10px; color: white; outline: none; }
-        .btn-primary { background: #2563eb; color: white; border: none; padding: 10px 16px; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .btn-primary:hover { background: #1d4ed8; }
-        .btn-secondary { background: #334155; color: white; border: none; padding: 10px 16px; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .btn-secondary:hover { background: #475569; }
-        .btn-danger { background: #ef4444; color: white; border: none; padding: 10px 16px; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .btn-danger:hover { background: #dc2626; }
-
+        .btn-primary { background: #2563eb; color: white; border: none; padding: 10px 16px; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        .btn-secondary { background: #334155; color: white; border: none; padding: 10px 16px; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        .btn-danger { background: #ef4444; color: white; border: none; padding: 10px 16px; border-radius: 10px; font-weight: bold; cursor: pointer; }
         .chat-list { flex: 1; overflow-y: auto; padding: 10px; }
-        .empty-chats { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #64748b; text-align: center; padding: 20px; }
+        .empty-chats { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #64748b; text-align: center; }
         .chat-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: #1e293b; margin-bottom: 8px; border-radius: 12px; cursor: pointer; }
-
         .back-btn { background: none; border: none; color: white; font-size: 16px; cursor: pointer; display: flex; align-items: center; gap: 5px; font-weight: bold; }
         .messages-box { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
-        
-        .msg { max-width: 75%; padding: 10px 14px; border-radius: 16px; font-size: 15px; word-wrap: break-word; }
+        .msg { max-width: 75%; padding: 10px 14px; border-radius: 16px; font-size: 15px; word-wrap: break-word; white-space: pre-wrap; }
         .msg.me { background-color: #2563eb; align-self: flex-end; border-bottom-right-radius: 2px; }
         .msg.other { background-color: #1e293b; align-self: flex-start; border-bottom-left-radius: 2px; }
         .msg-media { max-width: 100%; border-radius: 12px; margin-top: 5px; display: block; }
         .sticker-msg { font-size: 60px; line-height: 1; padding: 5px; background: none !important; }
         .msg-time { font-size: 10px; opacity: 0.7; margin-top: 4px; text-align: right; }
-
         .input-bar { background-color: #1e293b; padding: 10px; display: flex; gap: 8px; border-top: 1px solid #334155; position: relative; align-items: center; }
         .input-bar input { flex: 1; background: #0f172a; border: 1px solid #334155; padding: 12px 16px; border-radius: 24px; color: white; outline: none; }
-        
-        .btn-plus { width: 42px; height: 42px; border-radius: 50%; background: #334155; border: none; color: white; font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; flex-shrink: 0; }
-        .btn-plus:hover { background: #2563eb; transform: rotate(90deg); }
-
-        .attach-menu { position: absolute; bottom: 65px; left: 10px; background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 10px; display: none; flex-direction: column; gap: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 50; }
-        .attach-option { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 10px; cursor: pointer; font-size: 14px; transition: 0.2s; }
-        .attach-option:hover { background: #334155; }
-
-        .sticker-picker { position: absolute; bottom: 65px; left: 10px; background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 12px; display: none; grid-template-columns: repeat(4, 1fr); gap: 10px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 51; }
-        .sticker-item { font-size: 32px; cursor: pointer; text-align: center; transition: 0.2s; }
-        .sticker-item:hover { transform: scale(1.2); }
-
+        .btn-plus { width: 42px; height: 42px; border-radius: 50%; background: #334155; border: none; color: white; font-size: 22px; cursor: pointer; flex-shrink: 0; }
+        .attach-menu { position: absolute; bottom: 65px; left: 10px; background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 10px; display: none; flex-direction: column; gap: 8px; z-index: 50; }
+        .attach-option { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 10px; cursor: pointer; font-size: 14px; }
+        .sticker-picker { position: absolute; bottom: 65px; left: 10px; background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 12px; display: none; grid-template-columns: repeat(4, 1fr); gap: 10px; z-index: 51; }
+        .sticker-item { font-size: 32px; cursor: pointer; text-align: center; }
         .profile-card { padding: 25px; display: flex; flex-direction: column; align-items: center; gap: 15px; overflow-y: auto; flex: 1; }
         .field-group { width: 100%; max-width: 350px; display: flex; flex-direction: column; gap: 5px; text-align: left; }
         .field-group label { font-size: 12px; color: #94a3b8; }
         .field-group input { width: 100%; background: #1e293b; border: 1px solid #334155; padding: 10px; border-radius: 10px; color: white; outline: none; }
-        .id-hint { font-size: 11px; margin-top: 2px; }
-
         .nav-bar { background-color: #1e293b; display: flex; justify-content: space-around; padding: 10px 0; border-top: 1px solid #334155; height: 60px; }
         .nav-item { color: #94a3b8; text-decoration: none; font-size: 13px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; }
         .nav-item.active { color: #2563eb; }
@@ -200,23 +151,15 @@ HTML_TEMPLATE = """
 
     <div id="verifyModal">
         <div class="auth-box">
-            <div class="auth-icon-3d"><img src="/cat-icon.png" style="width:100%;height:100%;object-fit:cover;"></div>
-            <h2>Cat Bot Верификация</h2>
-            <p style="font-size: 13px; color: #94a3b8;">Введите вашу почту, чтобы получить код подтверждения.</p>
-            
+            <div class="avatar" style="width:70px;height:70px;margin:0 auto;"><img src="/cat-icon.png" style="width:100%;height:100%;border-radius:50%;object-fit:cover;"></div>
+            <h2>Cat Messenger</h2>
+            <p style="font-size: 13px; color: #94a3b8;">Введите почту для входа</p>
             <div id="stepEmail">
-                <div class="field-group" style="margin-bottom: 12px;">
-                    <label>Электронная почта</label>
-                    <input type="email" id="targetEmail" placeholder="example@gmail.com">
-                </div>
+                <input type="email" id="targetEmail" placeholder="example@gmail.com" style="width:100%;padding:10px;margin:10px 0;border-radius:8px;background:#0f172a;border:1px solid #334155;color:white;">
                 <button class="btn-primary" style="width: 100%;" onclick="requestVerificationCode('reg')">Отправить код</button>
             </div>
-
             <div id="stepCode" style="display:none;">
-                <div class="field-group" style="margin-bottom: 12px;">
-                    <label>Введите 6-значный код</label>
-                    <input type="text" id="enteredCode" placeholder="123456" maxlength="6">
-                </div>
+                <input type="text" id="enteredCode" placeholder="6-значный код" maxlength="6" style="width:100%;padding:10px;margin:10px 0;border-radius:8px;background:#0f172a;border:1px solid #334155;color:white;">
                 <button class="btn-primary" style="width: 100%;" onclick="verifyCode('reg')">Подтвердить</button>
             </div>
         </div>
@@ -224,21 +167,14 @@ HTML_TEMPLATE = """
 
     <div id="profileVerifyModal">
         <div class="auth-box">
-            <div class="auth-icon-3d"><img src="/cat-icon.png" style="width:100%;height:100%;object-fit:cover;"></div>
             <h2>Привязка почты</h2>
             <div id="profStepEmail">
-                <div class="field-group" style="margin-bottom: 12px;">
-                    <label>Новая почта</label>
-                    <input type="email" id="profTargetEmail" placeholder="example@gmail.com">
-                </div>
+                <input type="email" id="profTargetEmail" placeholder="example@gmail.com" style="width:100%;padding:10px;margin:10px 0;border-radius:8px;background:#0f172a;border:1px solid #334155;color:white;">
                 <button class="btn-primary" style="width: 100%;" onclick="requestVerificationCode('prof')">Отправить код</button>
                 <button class="btn-secondary" style="width: 100%; margin-top: 6px;" onclick="closeProfileVerify()">Отмена</button>
             </div>
             <div id="profStepCode" style="display:none;">
-                <div class="field-group" style="margin-bottom: 12px;">
-                    <label>Введите код</label>
-                    <input type="text" id="profEnteredCode" placeholder="123456" maxlength="6">
-                </div>
+                <input type="text" id="profEnteredCode" placeholder="Код" maxlength="6" style="width:100%;padding:10px;margin:10px 0;border-radius:8px;background:#0f172a;border:1px solid #334155;color:white;">
                 <button class="btn-primary" style="width: 100%;" onclick="verifyCode('prof')">Подтвердить</button>
             </div>
         </div>
@@ -246,7 +182,6 @@ HTML_TEMPLATE = """
 
     <div id="authModal">
         <div class="auth-box">
-            <div class="auth-icon-3d"><img src="/cat-icon.png" style="width:100%;height:100%;object-fit:cover;"></div>
             <h2>Регистрация</h2>
             <div class="avatar-upload" onclick="document.getElementById('regAvatarInput').click()">
                 <div id="regAvatarPlaceholder" class="placeholder">📷</div>
@@ -254,13 +189,12 @@ HTML_TEMPLATE = """
                 <input type="file" id="regAvatarInput" accept="image/*" onchange="handleAvatarSelect(this, 'reg')">
             </div>
             <div class="field-group">
-                <label>Ваше имя</label>
-                <input type="text" id="regName" placeholder="Имя">
+                <label>Имя</label>
+                <input type="text" id="regName" placeholder="Ваше имя">
             </div>
             <div class="field-group">
                 <label>ID</label>
-                <input type="text" id="regId" placeholder="@user" oninput="checkIdAvailability('reg')">
-                <div id="regIdStatusHint" class="id-hint"></div>
+                <input type="text" id="regId" placeholder="@user">
             </div>
             <button class="btn-primary" onclick="registerUser()">Зарегистрироваться</button>
         </div>
@@ -271,7 +205,7 @@ HTML_TEMPLATE = """
             <div id="headerAvatarBox" class="avatar">?</div>
             <div>
                 <div id="headerName" style="font-weight: bold; font-size: 15px;">Чаты</div>
-                <div class="status-text"><span class="status-dot online"></span><span id="headerSubtext">В сети</span></div>
+                <div class="status-text"><span class="status-dot"></span><span id="headerSubtext">В сети</span></div>
             </div>
         </div>
     </div>
@@ -279,7 +213,7 @@ HTML_TEMPLATE = """
     <div class="content-area">
         <div id="screenChatsList" class="screen active">
             <div class="search-box">
-                <input type="text" id="newChatInput" placeholder="Поиск по ID (@user)...">
+                <input type="text" id="newChatInput" placeholder="Поиск по ID (@user или @catbot)...">
                 <button class="btn-primary" onclick="startNewChat()">Найти</button>
             </div>
             <div class="chat-list" id="chatsListContainer"></div>
@@ -324,8 +258,7 @@ HTML_TEMPLATE = """
                 </div>
                 <div class="field-group">
                     <label>ID</label>
-                    <input type="text" id="editIdInput" oninput="checkIdAvailability('edit')">
-                    <div id="editIdStatusHint" class="id-hint"></div>
+                    <input type="text" id="editIdInput">
                 </div>
                 <div class="field-group">
                     <label>Почта</label>
@@ -346,6 +279,7 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
+        const BOT_NAME = "Cat Bot (AI)";
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/sw.js').catch(err => console.log(err));
         }
@@ -382,7 +316,7 @@ HTML_TEMPLATE = """
                         document.getElementById('profStepEmail').style.display = 'none';
                         document.getElementById('profStepCode').style.display = 'block';
                     }
-                    alert("Код отправлен на вашу почту!");
+                    alert("Код отправлен!");
                 } else { alert("Ошибка: " + res.message); }
             });
         }
@@ -487,17 +421,6 @@ HTML_TEMPLATE = """
                 reader.readAsDataURL(file);
             }
         }
-        function checkIdAvailability(mode) {
-            let id = document.getElementById(mode === 'reg' ? 'regId' : 'editIdInput').value.trim();
-            const hint = document.getElementById(mode === 'reg' ? 'regIdStatusHint' : 'editIdStatusHint');
-            if(!id) { hint.innerText = ''; return; }
-            if(!id.startsWith('@')) id = '@' + id;
-            if(mode === 'edit' && id === myProfile.id) { hint.innerText = '✓ Ваш ID'; hint.style.color = '#22c55e'; return; }
-            socket.emit('check_id_taken', { id }, (res) => {
-                hint.innerText = res.taken ? '❌ Занят' : '✓ Свободен';
-                hint.style.color = res.taken ? '#ef4444' : '#22c55e';
-            });
-        }
         function updateHeaderAvatar() {
             const box = document.getElementById('headerAvatarBox');
             if(myProfile.avatar) box.innerHTML = `<img src="${myProfile.avatar}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`;
@@ -519,7 +442,7 @@ HTML_TEMPLATE = """
                 if(res.found) {
                     if(!chatsData[res.user.name]) chatsData[res.user.name] = { avatar: res.user.avatar, msgs: [] };
                     saveChatsToStorage(); renderChatsList(); openChat(res.user.name);
-                } else { alert("Не найден!"); }
+                } else { alert("Пользователь не найден!"); }
             });
         }
         function renderChatsList() {
@@ -528,7 +451,7 @@ HTML_TEMPLATE = """
             if(keys.length === 0) { c.innerHTML = `<div class="empty-chats">📭 Пусто</div>`; return; }
             keys.forEach(name => {
                 const chat = chatsData[name];
-                const last = chat.msgs[chat.msgs.length - 1] ? chat.msgs[chat.msgs.length - 1].text : 'Нет сообщений';
+                const last = chat.msgs[chat.msgs.length - 1] ? (chat.msgs[chat.msgs.length - 1].text || 'Медиафайл') : 'Нет сообщений';
                 const div = document.createElement('div');
                 div.className = 'chat-item';
                 div.innerHTML = `${chat.avatar ? `<img src="${chat.avatar}" class="avatar">` : `<div class="avatar">${name[0]}</div>`}<div><b>${name}</b><div style="font-size:12px;color:#94a3b8">${last}</div></div>`;
@@ -585,10 +508,11 @@ HTML_TEMPLATE = """
         }
         socket.on('receive_message', (data) => {
             if(data.user !== myProfile.name) {
-                if(!chatsData[data.user]) chatsData[data.user] = { avatar: data.avatar || "", msgs: [] };
-                chatsData[data.user].msgs.push({ text: data.text, media: data.media, type: data.type, time: data.time, is_me: false });
+                const chatName = (data.target_chat === BOT_NAME) ? BOT_NAME : data.user;
+                if(!chatsData[chatName]) chatsData[chatName] = { avatar: data.avatar || "", msgs: [] };
+                chatsData[chatName].msgs.push({ text: data.text, media: data.media, type: data.type, time: data.time, is_me: false });
                 saveChatsToStorage();
-                if(currentChatUser === data.user) renderMessages(data.user);
+                if(currentChatUser === chatName) renderMessages(chatName);
                 renderChatsList();
             }
         });
@@ -604,31 +528,18 @@ def index():
 @socketio.on('send_verify_code')
 def handle_send_verify(data):
     recipient = data.get('email')
-    if not recipient:
-        return {'status': 'error', 'message': 'Email не указан'}
-    
+    if not recipient: return {'status': 'error', 'message': 'Email не указан'}
     code = str(random.randint(100000, 999999))
     verification_codes[recipient] = code
-    print(f"\n[CODE FOR {recipient}]: {code}\n")
-    
-    sent = send_email_code(recipient, code)
-    if not sent and SENDER_PASSWORD:
-        return {'status': 'error', 'message': 'Ошибка отправки письма'}
-        
+    send_email_code(recipient, code)
     return {'status': 'ok'}
 
 @socketio.on('check_verify_code')
 def handle_check_verify(data):
-    recipient = data.get('email')
-    code = data.get('code')
-    if recipient in verification_codes and verification_codes[recipient] == code:
-        del verification_codes[recipient]
+    if verification_codes.get(data.get('email')) == data.get('code'):
+        del verification_codes[data.get('email')]
         return {'status': 'ok'}
     return {'status': 'error'}
-
-@socketio.on('check_id_taken')
-def handle_check_id(data):
-    return {'taken': data['id'] in registered_users}
 
 @socketio.on('register_user')
 def handle_register(data):
@@ -637,13 +548,7 @@ def handle_register(data):
 
 @socketio.on('update_profile')
 def handle_update_profile(data):
-    old_id = data['old_id']
-    new_id = data['new_id']
-    if old_id != new_id and new_id in registered_users:
-        return {'status': 'error', 'message': 'ID уже занят'}
-    if old_id in registered_users:
-        del registered_users[old_id]
-    registered_users[new_id] = {'name': data['name'], 'avatar': data['avatar'], 'email': data.get('email', '')}
+    registered_users[data['new_id']] = {'name': data['name'], 'avatar': data['avatar'], 'email': data.get('email', '')}
     return {'status': 'ok'}
 
 @socketio.on('find_user')
@@ -656,6 +561,27 @@ def handle_find(data):
 @socketio.on('send_message')
 def handle_send_message(data):
     emit('receive_message', data, broadcast=True)
+    
+    target_chat = data.get('chat')
+    if target_chat == BOT_NAME or target_chat == BOT_ID:
+        user_text = data.get('text', '')
+        
+        try:
+            response = model.generate_content(user_text)
+            bot_reply = response.text
+        except Exception as e:
+            bot_reply = "Мяу! Проверь, добавлен ли GEMINI_API_KEY в Environment Variables на Render."
+
+        now = datetime.datetime.now().strftime("%H:%M")
+        bot_message = {
+            'user': BOT_NAME,
+            'avatar': CAT_ICON_URL,
+            'text': bot_reply,
+            'type': 'text',
+            'time': now,
+            'target_chat': BOT_NAME
+        }
+        emit('receive_message', bot_message, broadcast=True)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
