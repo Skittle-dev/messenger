@@ -1,7 +1,6 @@
 Flask
 Flask-SocketIO
 requests
-gunicorn
 Pillow
 google-generativeai
-
+beautifulsoup4
